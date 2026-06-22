@@ -24,7 +24,7 @@ jobs:
     - name: Install Kivy-iOS and Build Dependencies
       run: |
         pip install "kivy-ios>=3.0.0"
-        pip install kivy kivymd
+        pip install cython kivy kivymd
 
     - name: Compile and Create Xcode Project
       run: |
