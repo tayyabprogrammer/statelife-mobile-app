@@ -1,0 +1,38 @@
+name: Build iOS App (.ipa)
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-14 # GitHub Actions macOS environment
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install System Dependencies
+      run: |
+        brew install automake libtool pkg-config libffi
+        pip install --upgrade pip setuptools wheel
+
+    - name: Install Kivy-iOS and Build Dependencies
+      run: |
+        pip install "kivy-ios>=3.0.0"
+        pip install kivy kivymd
+
+    - name: Compile and Create Xcode Project
+      run: |
+        toolchain create StateLifeApp .
+        toolchain build kivy kivymd
+
+    - name: Archive Production Build (.ipa artifact)
+      uses: actions/upload-artifact@v4
+      with:
+        name: StateLifeApp-iOS
+        path: build/
