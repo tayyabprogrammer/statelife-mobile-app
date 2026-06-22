@@ -23,17 +23,19 @@ jobs:
 
     - name: Install Kivy-iOS and Cython Explicitly
       run: |
-        # Cython aur Kivy-ios ko direct python3 context mein force install karna
         python3 -m pip install "cython<3.0.0" 
         python3 -m pip install "kivy-ios>=3.0.0"
-        python3 -m pip install kivy kivymd
+        python3 -m pip install "kivy" "kivymd"
 
     - name: Configure and Create Xcode Project
       run: |
-        # Explicit python call taake toolchain ko cython ka environment 100% mile
-        python3 -m kivy_ios.toolchain create StateLifeApp .
+        # ORDER FIXED: Pehle python3 aur baqi recipes compile hongi, phir project create hoga
+        python3 -m kivy_ios.toolchain build python3
         python3 -m kivy_ios.toolchain build kivy
         python3 -m kivy_ios.toolchain build kivymd
+        
+        # Ab project easily create ho jayega bina recipe error ke
+        python3 -m kivy_ios.toolchain create StateLifeApp .
 
     - name: Archive Production Build (.ipa artifact)
       uses: actions/upload-artifact@v4
