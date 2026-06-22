@@ -2,10 +2,10 @@ name: Build iOS App (.ipa)
 on:
   push:
     branches: [ main ]
- 
+
 jobs:
   build:
-    runs-on: macos-14 # GitHub Actions macOS environment
+    runs-on: macos-14
 
     steps:
     - name: Checkout Code
@@ -19,17 +19,21 @@ jobs:
     - name: Install System Dependencies
       run: |
         brew install automake libtool pkg-config libffi
-        pip install --upgrade pip setuptools wheel
+        python3 -m pip install --upgrade pip setuptools wheel
 
-    - name: Install Kivy-iOS and Build Dependencies
+    - name: Install Kivy-iOS and Cython Explicitly
       run: |
-        pip install "kivy-ios>=3.0.0"
-        pip install kivy kivymd
+        # Cython aur Kivy-ios ko direct python3 context mein force install karna
+        python3 -m pip install "cython<3.0.0" 
+        python3 -m pip install "kivy-ios>=3.0.0"
+        python3 -m pip install kivy kivymd
 
-    - name: Compile and Create Xcode Project
+    - name: Configure and Create Xcode Project
       run: |
-        toolchain create StateLifeApp .
-        toolchain build kivy kivymd
+        # Explicit python call taake toolchain ko cython ka environment 100% mile
+        python3 -m kivy_ios.toolchain create StateLifeApp .
+        python3 -m kivy_ios.toolchain build kivy
+        python3 -m kivy_ios.toolchain build kivymd
 
     - name: Archive Production Build (.ipa artifact)
       uses: actions/upload-artifact@v4
