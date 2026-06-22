@@ -1,0 +1,181 @@
+name: Build iOS App (.ipa)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 120
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Cache Python packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install System Dependencies
+      run: |
+        brew install automake libtool pkg-config libffi xcode-select xcodebuild
+        sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+        python3 -m pip install --upgrade pip setuptools wheel
+
+    - name: Install Python Build Dependencies
+      run: |
+        python3 -m pip install --upgrade \
+          "cython==0.29.36" \
+          "setuptools>=65.0.0" \
+          "wheel>=0.38.0" \
+          "kivy-ios>=3.0.0" \
+          "kivy>=2.2.1" \
+          "kivymd>=1.1.1" \
+          "pillow>=9.0.0"
+
+    - name: Create buildozer.spec if needed
+      run: |
+        if [ ! -f buildozer.spec ]; then
+          cat > buildozer.spec << 'EOF'
+        [app]
+        title = StateLifeApp
+        package.name = statelifeapp
+        package.domain = com.statelife
+        source.dir = .
+        source.include_exts = py,png,jpg,kv,atlas,ttf,json
+        version = 1.0
+        requirements = python3,kivy,kivymd,pillow
+        orientation = portrait
+        fullscreen = 0
+
+        [buildozer]
+        log_level = 2
+        warn_on_root = 1
+        EOF
+        fi
+
+    - name: Debug Environment
+      run: |
+        python3 --version
+        python3 -m pip list | grep -i kivy
+        python3 -c "import sys; print('Python path:', sys.path)"
+
+    - name: Configure and Build iOS Project
+      env:
+        KIVY_ANDROID_ACCEPT_SDK_LICENSE: "1"
+        CYTHON_PROFILE: "1"
+      run: |
+        set -e
+        
+        # Create build directory
+        mkdir -p build
+        
+        # Install all required recipes using requirements flag
+        echo "Building iOS toolchain with recipes..."
+        python3 -m kivy_ios.toolchain create \
+          --requirements=python3,kivy,kivymd,pillow \
+          --presplash='' \
+          StateLifeApp . || {
+          echo "Build failed, checking error details..."
+          exit 1
+        }
+
+    - name: Build Xcode Project
+      run: |
+        set -e
+        
+        cd build/StateLifeApp
+        
+        # Check if Xcode project exists
+        if [ ! -d "StateLifeApp.xcodeproj" ]; then
+          echo "ERROR: Xcode project not found!"
+          ls -la
+          exit 1
+        fi
+        
+        echo "Building iOS app with Xcode..."
+        xcodebuild clean -project StateLifeApp.xcodeproj -scheme StateLifeApp -configuration Release
+        xcodebuild build -project StateLifeApp.xcodeproj -scheme StateLifeApp -configuration Release
+
+    - name: Create iOS Archive (.ipa)
+      run: |
+        set -e
+        
+        cd build/StateLifeApp
+        
+        # Generate IPA from the build
+        xcodebuild build-for-testing \
+          -project StateLifeApp.xcodeproj \
+          -scheme StateLifeApp \
+          -configuration Release \
+          -derivedDataPath build_output
+        
+        # Archive the app
+        xcodebuild archive \
+          -project StateLifeApp.xcodeproj \
+          -scheme StateLifeApp \
+          -configuration Release \
+          -archivePath ./StateLifeApp.xcarchive
+        
+        # Export IPA
+        mkdir -p export_options
+        cat > export_options/ExportOptions.plist << 'PLIST'
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>signingStyle</key>
+          <string>automatic</string>
+          <key>stripSwiftSymbols</key>
+          <true/>
+          <key>teamID</key>
+          <string></string>
+        </dict>
+        </plist>
+        PLIST
+        
+        xcodebuild -exportArchive \
+          -archivePath ./StateLifeApp.xcarchive \
+          -exportOptionsPlist export_options/ExportOptions.plist \
+          -exportPath ./Payload
+        
+        echo "IPA created successfully"
+
+    - name: Upload iOS Artifact (.ipa)
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: StateLifeApp-iOS-ipa
+        path: build/StateLifeApp/Payload/*.ipa
+        retention-days: 30
+
+    - name: Upload Build Logs on Failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-logs
+        path: |
+          build/StateLifeApp/build_output/Logs/
+          ~/Library/Logs/xcodebuild/
+        retention-days: 7
+
+    - name: Notify Build Status
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ iOS build completed successfully!"
+        else
+          echo "❌ iOS build failed! Check logs for details."
+          exit 1
+        fi
